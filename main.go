@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -22,9 +23,13 @@ type LicenseKey struct {
 }
 
 func main() {
-	db, err := gorm.Open(sqlite.Open("keys.db"), &gorm.Config{})
+	if err := os.MkdirAll("data", 0755); err != nil {
+		log.Fatalf("failed to create data directory: %v", err)
+	}
+
+	db, err := gorm.Open(sqlite.Open("data/keys.db"), &gorm.Config{})
 	if err != nil {
-		log.Fatal("failed to connect database")
+		log.Fatalf("failed to connect database: %v", err)
 	}
 	db.AutoMigrate(&LicenseKey{})
 
