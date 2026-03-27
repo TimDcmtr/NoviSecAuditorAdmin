@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -95,8 +96,25 @@ func main() {
 		defer f.Close()
 		data, _ := io.ReadAll(f)
 
+		// Parse the JSON file
+		var report map[string]interface{}
+		if err := json.Unmarshal(data, &report); err != nil {
+			return c.Status(400).SendString("Failed to parse JSON file")
+		}
+
+		encryptedHex, ok := report["encrypted_payload"].(string)
+		if !ok {
+			return c.Status(400).SendString("Missing 'encrypted_payload' in JSON")
+		}
+
+		// Decode hex to raw bytes
+		raw, err := hex.DecodeString(encryptedHex)
+		if err != nil {
+			return c.Status(400).SendString("Invalid hex payload")
+		}
+
 		// Same key used in backend/main.go
-		encryptionKey := []byte("novisec-super-secret-key-32bytes")
+		encryptionKey := []byte("$zd#9UHTqYLX05OIzzLIdbe%l><^kIAT")
 		block, err := aes.NewCipher(encryptionKey)
 		if err != nil {
 			return c.Status(500).SendString("Error creating cipher")
@@ -106,10 +124,10 @@ func main() {
 			return c.Status(500).SendString("Error creating GCM")
 		}
 		nonceSize := gcm.NonceSize()
-		if len(data) < nonceSize {
+		if len(raw) < nonceSize {
 			return c.Status(400).SendString("Ciphertext too short")
 		}
-		nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+		nonce, ciphertext := raw[:nonceSize], raw[nonceSize:]
 		plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 		if err != nil {
 			return c.Status(400).SendString(fmt.Sprintf("Failed to decrypt: %v (Wrong key?)", err))
