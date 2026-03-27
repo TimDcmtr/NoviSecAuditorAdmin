@@ -12,6 +12,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/basicauth"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"gorm.io/gorm"
 )
@@ -37,8 +38,31 @@ func main() {
 	app := fiber.New()
 	app.Use(cors.New()) // Needed so Auditor can make requests to /api/verify from its own port
 
-	// 1. Serve Admin HTML (Secure this via basic auth in real world, omitted here for simplicity)
-	app.Static("/", "./admin.html")
+	// Read credentials from env vars (with secure defaults for local dev)
+	adminUser := os.Getenv("ADMIN_USER")
+	if adminUser == "" {
+		adminUser = "novisec"
+	}
+	adminPass := os.Getenv("ADMIN_PASS")
+	if adminPass == "" {
+		adminPass = "NoviSec@SOC2025!"
+	}
+
+	auth := basicauth.New(basicauth.Config{
+		Users: map[string]string{
+			adminUser: adminPass,
+		},
+		Realm: "NoviSec Admin Panel",
+		Unauthorized: func(c *fiber.Ctx) error {
+			c.Set("WWW-Authenticate", `Basic realm="NoviSec Admin Panel"`)
+			return c.Status(fiber.StatusUnauthorized).SendString("401 Unauthorized — NoviSec Admin Panel")
+		},
+	})
+
+	// 1. Serve Admin HTML — protected by Basic Auth
+	app.Get("/", auth, func(c *fiber.Ctx) error {
+		return c.SendFile("./admin.html")
+	})
 
 	// 2. Public API for Auditor Clients
 	app.Get("/api/verify", func(c *fiber.Ctx) error {
@@ -50,14 +74,14 @@ func main() {
 		return c.JSON(fiber.Map{"valid": true, "client": l.ClientName})
 	})
 
-	// 3. API for Admin Dashboard (CRUD)
-	app.Get("/admin/keys", func(c *fiber.Ctx) error {
+	// 3. API for Admin Dashboard (CRUD) — all protected
+	app.Get("/admin/keys", auth, func(c *fiber.Ctx) error {
 		var keys []LicenseKey
 		db.Find(&keys)
 		return c.JSON(keys)
 	})
 
-	app.Post("/admin/keys", func(c *fiber.Ctx) error {
+	app.Post("/admin/keys", auth, func(c *fiber.Ctx) error {
 		var req LicenseKey
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).SendString(err.Error())
@@ -69,13 +93,13 @@ func main() {
 		return c.JSON(req)
 	})
 
-	app.Delete("/admin/keys/:id", func(c *fiber.Ctx) error {
+	app.Delete("/admin/keys/:id", auth, func(c *fiber.Ctx) error {
 		id := c.Params("id")
 		db.Delete(&LicenseKey{}, id)
 		return c.SendStatus(200)
 	})
 
-	app.Put("/admin/keys/:id/toggle", func(c *fiber.Ctx) error {
+	app.Put("/admin/keys/:id/toggle", auth, func(c *fiber.Ctx) error {
 		id := c.Params("id")
 		var l LicenseKey
 		if err := db.First(&l, id).Error; err != nil {
@@ -86,8 +110,8 @@ func main() {
 		return c.JSON(l)
 	})
 
-	// 4. API for Decrypting AES-GCM files sent by SOC Teams
-	app.Post("/admin/decrypt", func(c *fiber.Ctx) error {
+	// 4. API for Decrypting AES-GCM files sent by SOC Teams — protected
+	app.Post("/admin/decrypt", auth, func(c *fiber.Ctx) error {
 		file, err := c.FormFile("payload")
 		if err != nil {
 			return c.Status(400).SendString("Missing payload file")
