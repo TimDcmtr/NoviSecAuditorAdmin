@@ -9,9 +9,9 @@ import (
 	"log"
 	"os"
 
+	"github.com/glebarez/sqlite"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -96,7 +96,7 @@ func main() {
 		data, _ := io.ReadAll(f)
 
 		// Same key used in backend/main.go
-		encryptionKey := []byte("NoviSec-AES-256-Key-Super-Secret")
+		encryptionKey := []byte("novisec-super-secret-key-32bytes")
 		block, err := aes.NewCipher(encryptionKey)
 		if err != nil {
 			return c.Status(500).SendString("Error creating cipher")
