@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NoviSec Admin Panel</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans p-8">
+  <div class="max-w-6xl mx-auto space-y-8">
+    <header class="border-b border-slate-200 pb-4">
+      <h1 class="text-3xl font-bold text-slate-900">NoviSec Admin Panel</h1>
+      <p class="text-slate-500">License Management & Secure SOC Payload Decryption</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <!-- Keys Management -->
+      <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <h2 class="text-xl font-bold mb-4">🔑 License Keys</h2>
+        <form id="keyForm" class="flex gap-2 mb-6">
+          <input type="text" id="clientName" placeholder="Client Name" class="border p-2 rounded w-1/3" required>
+          <input type="text" id="licenseKey" placeholder="License Key (e.g. XXXX-XXXX)" class="border p-2 rounded w-1/2" required>
+          <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 font-bold">Add</button>
+        </form>
+        
+        <table class="w-full text-left bg-slate-50 rounded-lg overflow-hidden border">
+          <thead class="bg-slate-100">
+            <tr>
+              <th class="p-3 font-semibold text-sm w-1/4">Client Name</th>
+              <th class="p-3 font-semibold text-sm w-2/4">License Key</th>
+              <th class="p-3 font-semibold text-sm w-1/4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="keysTable" class="divide-y">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Decryption Area -->
+      <div class="bg-slate-900 text-slate-100 p-6 rounded-xl shadow-sm border border-slate-800">
+        <h2 class="text-xl font-bold mb-4 text-emerald-400">🛡️ SOC Emergency Decrypter</h2>
+        <p class="text-sm text-slate-400 mb-6">Upload an encrypted AES-GCM NOVISEC_EMERGENCY_*.json file to decrypt it locally.</p>
+        
+        <form id="decryptForm" class="flex flex-col gap-4">
+          <div class="border-2 border-dashed border-slate-700 p-6 rounded-lg text-center hover:bg-slate-800 cursor-pointer">
+            <input type="file" id="payloadFile" accept=".json" class="w-full cursor-pointer bg-slate-800 p-2 text-sm text-slate-300 rounded" required>
+          </div>
+          <button type="submit" class="bg-emerald-600 text-white px-4 py-3 rounded-lg hover:bg-emerald-700 font-bold">Decrypt Payload</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Decrypted Payload Display -->
+    <div id="decryptedOutput" class="hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+      <h3 class="text-lg font-bold mb-4 border-b pb-2">📂 Decrypted Report Details</h3>
+      <pre id="jsonOutput" class="text-xs text-slate-800 font-mono"></pre>
+    </div>
+  </div>
+
+  <script>
+    // --- Keys Management Logic ---
+    async function loadKeys() {
+      const res = await fetch('/admin/keys');
+      const keys = await res.json();
+      const tbody = document.getElementById('keysTable');
+      tbody.innerHTML = '';
+      keys.forEach(k => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-3 font-medium">${k.client_name}</td>
+          <td class="p-3 text-slate-600 font-mono text-sm">${k.key}</td>
+          <td class="p-3 text-right flex gap-2 justify-end">
+            <button onclick="toggleKey(${k.id})" class="text-xs px-2 py-1 rounded ${k.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} font-bold">
+              ${k.active ? 'ACTIVE' : 'REVOKED'}
+            </button>
+            <button onclick="deleteKey(${k.id})" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1 rounded text-xs font-bold">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    document.getElementById('keyForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const clientName = document.getElementById('clientName').value;
+      const key = document.getElementById('licenseKey').value;
+      await fetch('/admin/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_name: clientName, key: key })
+      });
+      document.getElementById('clientName').value = '';
+      document.getElementById('licenseKey').value = '';
+      loadKeys();
+    });
+
+    async function deleteKey(id) {
+      if(confirm('Delete key?')) {
+        await fetch('/admin/keys/' + id, { method: 'DELETE' });
+        loadKeys();
+      }
+    }
+
+    async function toggleKey(id) {
+      await fetch('/admin/keys/' + id + '/toggle', { method: 'PUT' });
+      loadKeys();
+    }
+
+    // --- Decryption Logic ---
+    document.getElementById('decryptForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('payloadFile');
+      if (!fileInput.files.length) return;
+      
+      const formData = new FormData();
+      formData.append('payload', fileInput.files[0]);
+      
+      const res = await fetch('/admin/decrypt', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const outputDiv = document.getElementById('decryptedOutput');
+      const jsonOutput = document.getElementById('jsonOutput');
+      
+      if (res.ok) {
+        const json = await res.json();
+        jsonOutput.innerHTML = JSON.stringify(json, null, 2);
+        outputDiv.className = "bg-white p-6 rounded-xl shadow-sm border border-emerald-200 overflow-x-auto";
+      } else {
+        const err = await res.text();
+        jsonOutput.innerHTML = `<span class="text-red-500 font-bold">${err}</span>`;
+        outputDiv.className = "bg-white p-6 rounded-xl shadow-sm border border-red-200 overflow-x-auto";
+      }
+    });
+
+    // Init
+    loadKeys();
+  </script>
+</body>
+</html>
