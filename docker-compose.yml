@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  admin-panel:
+    build: .
+    container_name: novisec-admin-panel
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+    volumes:
+      # On monte 'keys.db' de sorte qu'il soit persistant dans le même dossier
+      - ./keys.db:/app/keys.db
